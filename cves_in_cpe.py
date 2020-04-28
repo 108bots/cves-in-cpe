@@ -82,7 +82,7 @@ def get_cpe_cves(**kwargs):
         req = requests.get(nvd_services_baseURL, params=payload, headers=headers)
 
         if req.status_code != 200:
-            return {'error': 'Initial API response error. Code: '+str(req.status_code)}
+            return {'error': 'StartIndex: '+str(start_index)+' API response error. Code: '+str(req.status_code)}
         
         cpe_response = req.json()
         cpe_list = []
@@ -135,16 +135,18 @@ def main():
     # call get_cpe_cves to get CVEs for a give CPE
     cpe_cves = get_cpe_cves(**vars(args))
     
-    try:
-        # write output
+    # write output
+    if 'cpe_match_string' in cpe_cves.keys():
         print ('\nCPE Match string: ', cpe_cves['cpe_match_string'])
+    if 'cpe_count' in cpe_cves.keys():
         print ('\nCPE Count: ', cpe_cves['cpe_count'])
+    if 'cve_count' in cpe_cves.keys():
         print ('\nCVE Count: ', cpe_cves['cve_count'])
-        print ('\nSee cpe_cve_out.json file for details\n')
-        with open('cpe_cve_out.json', 'w') as file:
+    
+    with open('cpe_cve_out.json', 'w') as file:
             file.write(json.dumps(cpe_cves))
-    except KeyError as exp:
-            return {'error': 'Key not found in processed output:'+str(exp)}
+    
+    print ('\nSee cpe_cve_out.json file for details\n')
 
 if __name__ == "__main__":
     main()
