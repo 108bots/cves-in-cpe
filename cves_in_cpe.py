@@ -12,17 +12,117 @@ import json
         'cpes':[
         {
             'cpe_uri': string, 
-            'vulns': [cve1, cve2, ...]
+            'vulns':
+            {
+                cve : {
+                            'title': string,
+                            'cvss_version': string
+                            'cvss_base_score': number,
+                            'cvss_base_severity': string,
+                            'cwes': [string, string]
+                      }
+            }
         }
         ]
     }
 """
 
+def get_cve(cve_id):
+    """
+    Query CVE from NVD for a given ID
+    Returns: CVE detail as dictionary keyed by CVE ID
+    {
+        cve : {
+                    'title': string,
+                    'cvss_version': string
+                    'cvssv_base_score': number,
+                    'cvssv_base_severity': string,
+                    'cwes': [string, string]
+        }
+    }
+    """
 
-"""
-    Query CVEs from NVD for a given CPE
-"""
+    if not cve_id:
+        return {}
+
+    cve_id = cve_id.upper()
+    
+    # simple check on CVE format
+    if not cve_id.startswith('CVE-'):
+        return ()
+
+    # Call NVD API to query CVE
+    nvd_cve_URL = 'https://services.nvd.nist.gov/rest/json/cve/1.0/' + cve_id
+    headers = requests.utils.default_headers()
+    req = requests.get(nvd_cve_URL, headers=headers)
+    print ('Querying NVD for: '+cve_id)
+    if req.status_code != 200:
+        return {'error': cve_id+' API response error. Code: '+str(req.status_code)}
+        
+    cve_response = req.json()
+    cve_details = {}
+
+    try:
+        title = cve_response['result']['CVE_Items'][0]['cve']['description']['description_data'][0]['value']
+        impact = cve_response['result']['CVE_Items'][0]['impact']
+        # handle cvss v3 and v2
+        cvss_version = ''
+        if 'baseMetricV3' in impact.keys():
+            cvss_version = 'V3'
+        elif 'baseMetricV2' in impact.keys():
+            cvss_version = 'V2'
+        
+        if cvss_version == 'V3':
+            cvss_base_score = impact['baseMetricV3']['cvssV3']['baseScore']
+            cvss_base_severity = impact['baseMetricV3']['cvssV3']['baseSeverity']
+        if cvss_version == 'V2':
+            cvss_base_score = impact['baseMetricV2']['cvssV2']['baseScore']
+            cvss_base_severity = impact['baseMetricV2']['severity']
+        # collect CWEs if present
+        cwes = []
+        for cwe in cve_response['result']['CVE_Items'][0]['cve']['problemtype']['problemtype_data'][0]['description']:
+            cwe = cwe['value'].upper()
+            if cwe.startswith('CWE-'):
+                cwes.append(cwe)
+
+        cve_details['title'] = title
+        cve_details['cvss_version'] = cvss_version
+        cve_details['cvss_base_score'] = cvss_base_score
+        cve_details['cvss_base_severity'] = cvss_base_severity.upper()
+        cve_details['cwes'] = cwes
+        
+    except KeyError as exp:
+        return {'error': 'Key not found in '+cve_id+' API Response:'+str(exp)}
+        
+
+    return {cve_id:cve_details}
+
+
 def get_cpe_cves(**kwargs):
+    """
+    Query CVEs from NVD for a given CPE
+    Returns: Dictionary of results in below format
+     { 
+        'cpe_match_string': string
+        'cpe_count': number, 
+        'cve_count': number,
+        'cpes':[
+        {
+            'cpe_uri': string, 
+            'vulns':
+            {
+                cve : {
+                            'title': string,
+                            'cvss_version': string
+                            'cvss_base_score': number,
+                            'cvss_base_severity': string,
+                            'cwes': [string, string]
+                      }
+            }
+        }
+        ]
+    }
+    """
     
     if kwargs is None:
         return {'error':'no data passed'}
@@ -51,23 +151,16 @@ def get_cpe_cves(**kwargs):
     if 'other' not in kwargs.keys():
         kwargs['other'] = '*'
         
-    nvd_services_baseURL = 'https://services.nvd.nist.gov/rest/json/cpes/1.0'
+    nvd_cpe_baseURL = 'https://services.nvd.nist.gov/rest/json/cpes/1.0'
     cpe_ver = '2.3'
     cpe_match_string = 'cpe:'+cpe_ver+':'+kwargs['part']+':'+kwargs['vendor']+':'+kwargs['product']+':'+kwargs['version']+':'+kwargs['update']+':'+kwargs['language']+':'+kwargs['sw_edition']+':'+kwargs['sw_edition']+':'+kwargs['target_sw']+':'+kwargs['target_hw']+':'+kwargs['other']
-    # print (cpe_match_string)
-
-    # output results stored as dictionary { 
-    #                                       'cpe_match_string': string
-    #                                       'cpe_count': number, 
-    #                                       'cve_count': number,
-    #                                       'cpes':[
-    #                                               {
-    #                                                'cpe_uri': string, 
-    #                                                'vulns': [cve1, cve2, ...]
-    #                                               }
-    #                                              ]
-    #                                     }
-    cpe_cve_results = {'cpe_match_string': cpe_match_string , 'cpe_count': 0, 'cve_count': 0, 'cpes': []}
+    
+    cpe_cve_results = {
+        'cpe_match_string': cpe_match_string, 
+        'cpe_count': 0, 
+        'cve_count': 0, 
+        'cpes': []
+    }
 
     # set resultsPerPage to the maximum allowed of 5000
     max_results_per_page = 5000
@@ -77,28 +170,45 @@ def get_cpe_cves(**kwargs):
 
     headers = requests.utils.default_headers()
     while records_pending > 0:
-        # make api request
+        # Call NVD API to query CPE
         payload = {'cpeMatchString': cpe_match_string, 'startIndex': start_index, 'resultsPerPage': max_results_per_page, 'addOns': 'cves'}
-        req = requests.get(nvd_services_baseURL, params=payload, headers=headers)
+        req = requests.get(nvd_cpe_baseURL, params=payload, headers=headers)
 
         if req.status_code != 200:
-            return {'error': 'StartIndex: '+str(start_index)+' API response error. Code: '+str(req.status_code)}
+            return {'error': 'StartIndex: '+str(start_index)+' CPE API response error. Code: '+str(req.status_code)}
         
         cpe_response = req.json()
-        cpe_list = []
 
         try:
             cpe_count = cpe_response['result']['cpeCount']
             cpe_cve_results['cpe_count'] = cpe_count 
-
+            print ('\nFound '+str(cpe_count)+' CPEs...\n')
+            ctr = 0
             for cpe in cpe_response['result']['cpes']:
-                cpe_list.append({'cpe_uri': cpe['cpe23Uri'], 'vulns': cpe['vulnerabilities']})
-                cpe_cve_results['cve_count'] += len(cpe['vulnerabilities'])
+                
+                print ('\n['+str(ctr)+']Enumerating: '+cpe['cpe23Uri']+'... Found '+str(len(cpe['vulnerabilities']))+' CVEs\n')
+                cpe_cve_results['cpes'].append({'cpe_uri': cpe['cpe23Uri'], 'vulns': {}})
+                # get details for each CVE and add to vulns
+                for cve in cpe['vulnerabilities']:
+                    print ('Looking up: '+cve)
+                    # check if cve was already queried before, if so, copy details and avoid API call 
+                    cve_details = {}
+                    for c in cpe_cve_results['cpes']:
+                        if cve in c['vulns'].keys():
+                            cve_details[cve.upper()] = c['vulns'][cve]
+                            print ('Found it locally!!')
+                            break            
+                    # Query CVE from NVD
+                    if not cve_details:
+                        cve_details = get_cve(cve)
 
-            cpe_cve_results['cpes'] += cpe_list
+                    cpe_cve_results['cpes'][ctr]['vulns'].update(cve_details)
+
+                cpe_cve_results['cve_count'] += len(cpe_cve_results['cpes'][ctr]['vulns'])
+                ctr+=1
             
         except KeyError as exp:
-            return {'error': 'Key not found in API Response:'+str(exp)}
+            return {'error': 'Key not found in CPE API Response:'+str(exp)}
         
         # break if all results are retrieved in single page
         if cpe_count <= max_results_per_page:
@@ -136,19 +246,18 @@ def main():
     cpe_cves = get_cpe_cves(**vars(args))
     
     # write output
+    print ('\n\n***SUMMARY***\n')
     if 'cpe_match_string' in cpe_cves.keys():
-        print ('\nCPE Match string: ', cpe_cves['cpe_match_string'])
+        print ('CPE Match string: ', cpe_cves['cpe_match_string'])
     if 'cpe_count' in cpe_cves.keys():
-        print ('\nCPE Count: ', cpe_cves['cpe_count'])
+        print ('CPE Count: ', cpe_cves['cpe_count'])
     if 'cve_count' in cpe_cves.keys():
-        print ('\nCVE Count: ', cpe_cves['cve_count'])
+        print ('CVE Count: ', cpe_cves['cve_count'])
     
     with open('cpe_cve_out.json', 'w') as file:
             file.write(json.dumps(cpe_cves))
-    
-    print ('\nSee cpe_cve_out.json file for details\n')
+    print ('\nFurther details: See cpe_cve_out.json\n')
 
 if __name__ == "__main__":
     main()
-
 
