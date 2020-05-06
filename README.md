@@ -40,7 +40,16 @@ Returns below structure as a json string or file:
         'cpes':[
         {
             'cpe_uri': string, 
-            'vulns': [cve1, cve2, ...]
+            'vulns':
+            {
+                cve : {
+                            'title': string,
+                            'cvss_version': string
+                            'cvss_base_score': number,
+                            'cvss_base_severity': string,
+                            'cwes': [string, string]
+                      }
+            }
         }
         ]
     }
@@ -57,5 +66,6 @@ Sample output file at ./cpe_cve_out.json
 
 # NVD API Reference
 
-https://csrc.nist.gov/CSRC/media/Projects/National-Vulnerability-Database/documents/web%20service%20documentation/Automation%20Support%20for%20CPE%20Retrieval.pdf
+* https://csrc.nist.gov/CSRC/media/Projects/National-Vulnerability-Database/documents/web%20service%20documentation/Automation%20Support%20for%20CPE%20Retrieval.pdf
+* https://csrc.nist.gov/CSRC/media/Projects/National-Vulnerability-Database/documents/web%20service%20documentation/Automation%20Support%20for%20CVE%20Retrieval.pdf
 
